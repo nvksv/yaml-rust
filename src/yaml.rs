@@ -66,11 +66,25 @@ fn parse_f64(v: &str) -> Option<f64> {
     }
 }
 
+struct NodeWithAnchor {
+    node: Yaml,
+    anchor_id: usize,
+}
+
+impl NodeWithAnchor {
+    fn new( node: Yaml, anchor_id: usize ) -> Self {
+        Self {
+            node,
+            anchor_id,
+        }
+    }
+}
+
 pub struct YamlLoader {
     docs: Vec<Yaml>,
     // states
     // (current node, anchor_id) tuple
-    doc_stack: Vec<(Yaml, usize)>,
+    doc_stack: Vec<NodeWithAnchor>,
     key_stack: Vec<Yaml>,
     anchor_map: BTreeMap<usize, Yaml>,
 }
@@ -86,19 +100,19 @@ impl MarkedEventReceiver for YamlLoader {
                 match self.doc_stack.len() {
                     // empty document
                     0 => self.docs.push(Yaml::BadValue),
-                    1 => self.docs.push(self.doc_stack.pop().unwrap().0),
+                    1 => self.docs.push(self.doc_stack.pop().unwrap().node),
                     _ => unreachable!(),
                 }
             }
-            Event::SequenceStart(aid) => {
-                self.doc_stack.push((Yaml::Array(Vec::new()), aid));
+            Event::SequenceStart(anchor_id) => {
+                self.doc_stack.push(NodeWithAnchor::new(Yaml::Array(Vec::new()), anchor_id));
             }
             Event::SequenceEnd => {
                 let node = self.doc_stack.pop().unwrap();
                 self.insert_new_node(node);
             }
             Event::MappingStart(aid) => {
-                self.doc_stack.push((Yaml::Hash(Hash::new()), aid));
+                self.doc_stack.push(NodeWithAnchor::new(Yaml::Hash(Hash::new()), aid));
                 self.key_stack.push(Yaml::BadValue);
             }
             Event::MappingEnd => {
@@ -106,50 +120,50 @@ impl MarkedEventReceiver for YamlLoader {
                 let node = self.doc_stack.pop().unwrap();
                 self.insert_new_node(node);
             }
-            Event::Scalar(v, style, aid, tag) => {
+            Event::Scalar{value, style, anchor_id, tag} => {
                 let node = if style != TScalarStyle::Plain {
-                    Yaml::String(v)
+                    Yaml::String(value)
                 } else if let Some(TokenType::Tag(ref handle, ref suffix)) = tag {
                     // XXX tag:yaml.org,2002:
                     if handle == "!!" {
                         match suffix.as_ref() {
                             "bool" => {
                                 // "true" or "false"
-                                match v.parse::<bool>() {
+                                match value.parse::<bool>() {
                                     Err(_) => Yaml::BadValue,
                                     Ok(v) => Yaml::Boolean(v),
                                 }
                             }
-                            "int" => match v.parse::<i64>() {
+                            "int" => match value.parse::<i64>() {
                                 Err(_) => Yaml::BadValue,
                                 Ok(v) => Yaml::Integer(v),
                             },
-                            "float" => match parse_f64(&v) {
-                                Some(_) => Yaml::Real(v),
+                            "float" => match parse_f64(&value) {
+                                Some(_) => Yaml::Real(value),
                                 None => Yaml::BadValue,
                             },
-                            "null" => match v.as_ref() {
+                            "null" => match value.as_ref() {
                                 "~" | "null" => Yaml::Null,
                                 _ => Yaml::BadValue,
                             },
-                            _ => Yaml::String(v),
+                            _ => Yaml::String(value),
                         }
                     } else {
-                        Yaml::String(v)
+                        Yaml::String(value)
                     }
                 } else {
                     // Datatype is not specified, or unrecognized
-                    Yaml::from_str(&v)
+                    Yaml::from_str(&value)
                 };
 
-                self.insert_new_node((node, aid));
+                self.insert_new_node(NodeWithAnchor::new(node, anchor_id));
             }
             Event::Alias(id) => {
                 let n = match self.anchor_map.get(&id) {
                     Some(v) => v.clone(),
                     None => Yaml::BadValue,
                 };
-                self.insert_new_node((n, 0));
+                self.insert_new_node(NodeWithAnchor::new(n, 0));
             }
             _ => { /* ignore */ }
         }
@@ -158,27 +172,27 @@ impl MarkedEventReceiver for YamlLoader {
 }
 
 impl YamlLoader {
-    fn insert_new_node(&mut self, node: (Yaml, usize)) {
+    fn insert_new_node(&mut self, node: NodeWithAnchor) {
         // valid anchor id starts from 1
-        if node.1 > 0 {
-            self.anchor_map.insert(node.1, node.0.clone());
+        if node.anchor_id > 0 {
+            self.anchor_map.insert(node.anchor_id, node.node.clone());
         }
         if self.doc_stack.is_empty() {
             self.doc_stack.push(node);
         } else {
             let parent = self.doc_stack.last_mut().unwrap();
             match *parent {
-                (Yaml::Array(ref mut v), _) => v.push(node.0),
-                (Yaml::Hash(ref mut h), _) => {
+                NodeWithAnchor{node: Yaml::Array(ref mut v), anchor_id: _} => v.push(node.node),
+                NodeWithAnchor{node: Yaml::Hash(ref mut h), anchor_id: _} => {
                     let cur_key = self.key_stack.last_mut().unwrap();
                     // current node is a key
                     if cur_key.is_badvalue() {
-                        *cur_key = node.0;
+                        *cur_key = node.node;
                     // current node is a value
                     } else {
                         let mut newkey = Yaml::BadValue;
                         mem::swap(&mut newkey, cur_key);
-                        h.insert(newkey, node.0);
+                        h.insert(newkey, node.node);
                     }
                 }
                 _ => unreachable!(),

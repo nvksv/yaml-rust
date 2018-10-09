@@ -33,8 +33,8 @@ impl EventReceiver for YamlChecker {
             Event::SequenceEnd => TestEvent::OnSequenceEnd,
             Event::MappingStart(..) => TestEvent::OnMapStart,
             Event::MappingEnd => TestEvent::OnMapEnd,
-            Event::Scalar(ref v, style, _, _) => {
-                if v == "~" && style == TScalarStyle::Plain {
+            Event::Scalar{ref value, style, anchor_id: _, tag: _} => {
+                if value == "~" && style == TScalarStyle::Plain {
                     TestEvent::OnNull
                 } else {
                     TestEvent::OnScalar

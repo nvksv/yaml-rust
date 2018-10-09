@@ -115,7 +115,20 @@ pub enum TokenType {
 }
 
 #[derive(Clone, PartialEq, Debug, Eq)]
-pub struct Token(pub Marker, pub TokenType);
+pub struct Token{
+    pub mark: Marker, 
+    pub tokentype: TokenType,
+}
+
+impl Token {
+    fn new(mark: Marker, tokentype: TokenType) -> Self {
+        Self {
+            mark,
+            tokentype,
+        }
+    }
+}
+
 
 #[derive(Clone, PartialEq, Debug, Eq)]
 struct SimpleKey {
@@ -423,7 +436,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.token_available = false;
         self.tokens_parsed += 1;
 
-        if let TokenType::StreamEnd = t.1 {
+        if let TokenType::StreamEnd = t.tokentype {
             self.stream_end_produced = true;
         }
         Ok(Some(t))
@@ -498,7 +511,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.stream_start_produced = true;
         self.allow_simple_key();
         self.tokens
-            .push_back(Token(mark, TokenType::StreamStart(TEncoding::Utf8)));
+            .push_back(Token::new(mark, TokenType::StreamStart(TEncoding::Utf8)));
         self.simple_keys.push(SimpleKey::new(Marker::new(0, 0, 0)));
     }
 
@@ -514,7 +527,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.disallow_simple_key();
 
         self.tokens
-            .push_back(Token(self.mark, TokenType::StreamEnd));
+            .push_back(Token::new(self.mark, TokenType::StreamEnd));
         Ok(())
     }
 
@@ -548,7 +561,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
                     self.lookahead(1);
                 }
                 // XXX return an empty TagDirective token
-                Token(
+                Token::new(
                     start_mark,
                     TokenType::TagDirective(String::new(), String::new()),
                 )
@@ -607,7 +620,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
 
         let minor = self.scan_version_directive_number(mark)?;
 
-        Ok(Token(*mark, TokenType::VersionDirective(major, minor)))
+        Ok(Token::new(*mark, TokenType::VersionDirective(major, minor)))
     }
 
     fn scan_directive_name(&mut self) -> Result<String, ScanError> {
@@ -686,7 +699,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.lookahead(1);
 
         if is_blankz(self.ch()) {
-            Ok(Token(*mark, TokenType::TagDirective(handle, prefix)))
+            Ok(Token::new(*mark, TokenType::TagDirective(handle, prefix)))
         } else {
             Err(ScanError::new(
                 *mark,
@@ -751,7 +764,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.lookahead(1);
         if is_blankz(self.ch()) {
             // XXX: ex 7.2, an empty scalar can follow a secondary tag
-            Ok(Token(start_mark, TokenType::Tag(handle, suffix)))
+            Ok(Token::new(start_mark, TokenType::Tag(handle, suffix)))
         } else {
             Err(ScanError::new(
                 start_mark,
@@ -938,9 +951,9 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         if alias {
-            Ok(Token(start_mark, TokenType::Alias(string)))
+            Ok(Token::new(start_mark, TokenType::Alias(string)))
         } else {
-            Ok(Token(start_mark, TokenType::Anchor(string)))
+            Ok(Token::new(start_mark, TokenType::Anchor(string)))
         }
     }
 
@@ -955,7 +968,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         self.skip();
 
-        self.tokens.push_back(Token(start_mark, tok));
+        self.tokens.push_back(Token::new(start_mark, tok));
         Ok(())
     }
 
@@ -968,7 +981,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         self.skip();
 
-        self.tokens.push_back(Token(start_mark, tok));
+        self.tokens.push_back(Token::new(start_mark, tok));
         Ok(())
     }
 
@@ -980,7 +993,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
 
         self.tokens
-            .push_back(Token(start_mark, TokenType::FlowEntry));
+            .push_back(Token::new(start_mark, TokenType::FlowEntry));
         Ok(())
     }
 
@@ -1026,7 +1039,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
 
         self.tokens
-            .push_back(Token(start_mark, TokenType::BlockEntry));
+            .push_back(Token::new(start_mark, TokenType::BlockEntry));
         Ok(())
     }
 
@@ -1041,7 +1054,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
         self.skip();
 
-        self.tokens.push_back(Token(mark, t));
+        self.tokens.push_back(Token::new(mark, t));
         Ok(())
     }
 
@@ -1196,12 +1209,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         if literal {
-            Ok(Token(
+            Ok(Token::new(
                 start_mark,
                 TokenType::Scalar(TScalarStyle::Literal, string),
             ))
         } else {
-            Ok(Token(
+            Ok(Token::new(
                 start_mark,
                 TokenType::Scalar(TScalarStyle::Foled, string),
             ))
@@ -1444,12 +1457,12 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         self.skip();
 
         if single {
-            Ok(Token(
+            Ok(Token::new(
                 start_mark,
                 TokenType::Scalar(TScalarStyle::SingleQuoted, string),
             ))
         } else {
-            Ok(Token(
+            Ok(Token::new(
                 start_mark,
                 TokenType::Scalar(TScalarStyle::DoubleQuoted, string),
             ))
@@ -1579,7 +1592,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             self.allow_simple_key();
         }
 
-        Ok(Token(
+        Ok(Token::new(
             start_mark,
             TokenType::Scalar(TScalarStyle::Plain, string),
         ))
@@ -1612,7 +1625,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         }
 
         self.skip();
-        self.tokens.push_back(Token(start_mark, TokenType::Key));
+        self.tokens.push_back(Token::new(start_mark, TokenType::Key));
         Ok(())
     }
 
@@ -1621,7 +1634,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
         let start_mark = self.mark;
         if sk.possible {
             // insert simple key
-            let tok = Token(sk.mark, TokenType::Key);
+            let tok = Token::new(sk.mark, TokenType::Key);
             let tokens_parsed = self.tokens_parsed;
             self.insert_token(sk.token_number - tokens_parsed, tok);
 
@@ -1660,7 +1673,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             }
         }
         self.skip();
-        self.tokens.push_back(Token(start_mark, TokenType::Value));
+        self.tokens.push_back(Token::new(start_mark, TokenType::Value));
 
         Ok(())
     }
@@ -1675,8 +1688,8 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             self.indent = col as isize;
             let tokens_parsed = self.tokens_parsed;
             match number {
-                Some(n) => self.insert_token(n - tokens_parsed, Token(mark, tok)),
-                None => self.tokens.push_back(Token(mark, tok)),
+                Some(n) => self.insert_token(n - tokens_parsed, Token::new(mark, tok)),
+                None => self.tokens.push_back(Token::new(mark, tok)),
             }
         }
     }
@@ -1686,7 +1699,7 @@ impl<T: Iterator<Item = char>> Scanner<T> {
             return;
         }
         while self.indent > col {
-            self.tokens.push_back(Token(self.mark, TokenType::BlockEnd));
+            self.tokens.push_back(Token::new(self.mark, TokenType::BlockEnd));
             self.indent = self.indents.pop().unwrap();
         }
     }
@@ -1726,7 +1739,7 @@ mod test {
     macro_rules! next {
         ($p:ident, $tk:pat) => {{
             let tok = $p.next().unwrap();
-            match tok.1 {
+            match tok.tokentype {
                 $tk => {}
                 _ => panic!("unexpected token: {:?}", tok),
             }
@@ -1736,7 +1749,7 @@ mod test {
     macro_rules! next_scalar {
         ($p:ident, $tk:expr, $v:expr) => {{
             let tok = $p.next().unwrap();
-            match tok.1 {
+            match tok.tokentype {
                 Scalar(style, ref v) => {
                     assert_eq!(style, $tk);
                     assert_eq!(v, $v);
