@@ -29,6 +29,8 @@ enum State {
     End,
 }
 
+pub type AnchorId = usize;
+
 /// `Event` is used with the low-level event base parsing API,
 /// see `EventReceiver` trait.
 #[derive(Clone, PartialEq, Debug, Eq)]
@@ -40,25 +42,25 @@ pub enum Event {
     DocumentStart,
     DocumentEnd,
     /// Refer to an anchor ID
-    Alias(usize),
+    Alias(AnchorId),
     /// Value, style, anchor_id, tag
-    Scalar{value: String, style: TScalarStyle, anchor_id: usize, tag: Option<TokenType>},
+    Scalar{value: String, style: TScalarStyle, anchor: Option<AnchorId>, tag: Option<TokenType>},
     /// Anchor ID
-    SequenceStart(usize),
+    SequenceStart(Option<AnchorId>),
     SequenceEnd,
     /// Anchor ID
-    MappingStart(usize),
+    MappingStart(Option<AnchorId>),
     MappingEnd,
 }
 
 impl Event {
     fn empty_scalar() -> Event {
         // a null scalar
-        Event::Scalar{value: "~".to_owned(), style: TScalarStyle::Plain, anchor_id: 0, tag: None}
+        Event::Scalar{value: "~".to_owned(), style: TScalarStyle::Plain, anchor: None, tag: None}
     }
 
-    fn empty_scalar_with_anchor(anchor: usize, tag: Option<TokenType>) -> Event {
-        Event::Scalar{value: "".to_owned(), style: TScalarStyle::Plain, anchor_id: anchor, tag: tag}
+    fn empty_scalar_with_anchor(anchor: Option<AnchorId>, tag: Option<TokenType>) -> Event {
+        Event::Scalar{value: "".to_owned(), style: TScalarStyle::Plain, anchor, tag}
     }
 }
 
@@ -70,8 +72,8 @@ pub struct Parser<T> {
     marks: Vec<Marker>,
     token: Option<Token>,
     current: Option<ParsedEventMarker>,
-    anchors: HashMap<String, usize>,
-    anchor_id: usize,
+    anchors: HashMap<String, AnchorId>,
+    next_anchor_id: AnchorId,
 }
 
 pub trait EventReceiver {
@@ -116,8 +118,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
             current: None,
 
             anchors: HashMap::new(),
-            // valid anchor_id starts from 1
-            anchor_id: 1,
+            next_anchor_id: 1,
         }
     }
 
@@ -447,20 +448,20 @@ impl<T: Iterator<Item = char>> Parser<T> {
         Ok(ParsedEventMarker::new(Event::DocumentEnd, marker))
     }
 
-    fn register_anchor(&mut self, name: String, _: &Marker) -> Result<usize, ScanError> {
+    fn register_anchor(&mut self, name: String, _: &Marker) -> Result<AnchorId, ScanError> {
         // anchors can be overrided/reused
         // if self.anchors.contains_key(name) {
         //     return Err(ScanError::new(*mark,
         //         "while parsing anchor, found duplicated anchor"));
         // }
-        let new_id = self.anchor_id;
-        self.anchor_id += 1;
+        let new_id = self.next_anchor_id;
+        self.next_anchor_id += 1;
         self.anchors.insert(name, new_id);
         Ok(new_id)
     }
 
     fn parse_node(&mut self, block: bool, indentless_sequence: bool) -> ParseResult {
-        let mut anchor_id = 0;
+        let mut anchor = None;
         let mut tag = None;
         match *self.peek_token()? {
             Token{mark: _, tokentype: TokenType::Alias(_)} => {
@@ -481,7 +482,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
             }
             Token{mark: _, tokentype: TokenType::Anchor(_)} => {
                 if let Token{mark, tokentype: TokenType::Anchor(name)} = self.fetch_token() {
-                    anchor_id = self.register_anchor(name, &mark)?;
+                    anchor = Some(self.register_anchor(name, &mark)?);
                     if let TokenType::Tag(..) = self.peek_token()?.tokentype {
                         if let tg @ TokenType::Tag(..) = self.fetch_token().tokentype {
                             tag = Some(tg);
@@ -498,7 +499,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     tag = Some(tg);
                     if let TokenType::Anchor(_) = self.peek_token()?.tokentype {
                         if let Token{mark, tokentype: TokenType::Anchor(name)} = self.fetch_token() {
-                            anchor_id = self.register_anchor(name, &mark)?;
+                            anchor = Some(self.register_anchor(name, &mark)?);
                         } else {
                             unreachable!()
                         }
@@ -512,36 +513,36 @@ impl<T: Iterator<Item = char>> Parser<T> {
         match *self.peek_token()? {
             Token{mark, tokentype: TokenType::BlockEntry} if indentless_sequence => {
                 self.state = State::IndentlessSequenceEntry;
-                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
+                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor), mark))
             }
             Token{mark: _, tokentype: TokenType::Scalar(..)} => {
                 self.pop_state();
                 if let Token{mark, tokentype: TokenType::Scalar(style, value)} = self.fetch_token() {
-                    Ok(ParsedEventMarker::new(Event::Scalar{value, style, anchor_id, tag}, mark))
+                    Ok(ParsedEventMarker::new(Event::Scalar{value, style, anchor, tag}, mark))
                 } else {
                     unreachable!()
                 }
             }
             Token{mark, tokentype: TokenType::FlowSequenceStart} => {
                 self.state = State::FlowSequenceFirstEntry;
-                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
+                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor), mark))
             }
             Token{mark, tokentype: TokenType::FlowMappingStart} => {
                 self.state = State::FlowMappingFirstKey;
-                Ok(ParsedEventMarker::new(Event::MappingStart(anchor_id), mark))
+                Ok(ParsedEventMarker::new(Event::MappingStart(anchor), mark))
             }
             Token{mark, tokentype: TokenType::BlockSequenceStart} if block => {
                 self.state = State::BlockSequenceFirstEntry;
-                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
+                Ok(ParsedEventMarker::new(Event::SequenceStart(anchor), mark))
             }
             Token{mark, tokentype: TokenType::BlockMappingStart} if block => {
                 self.state = State::BlockMappingFirstKey;
-                Ok(ParsedEventMarker::new(Event::MappingStart(anchor_id), mark))
+                Ok(ParsedEventMarker::new(Event::MappingStart(anchor), mark))
             }
             // ex 7.2, an empty scalar can follow a secondary tag
-            Token{mark, tokentype: _} if tag.is_some() || anchor_id > 0 => {
+            Token{mark, tokentype: _} if tag.is_some() || anchor.is_some() => {
                 self.pop_state();
-                Ok(ParsedEventMarker::new(Event::empty_scalar_with_anchor(anchor_id, tag), mark))
+                Ok(ParsedEventMarker::new(Event::empty_scalar_with_anchor(anchor, tag), mark))
             }
             Token{mark, tokentype: _} => Err(ScanError::new(
                 mark,
@@ -733,7 +734,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
             Token{mark, tokentype: TokenType::Key} => {
                 self.state = State::FlowSequenceEntryMappingKey;
                 self.skip();
-                Ok(ParsedEventMarker::new(Event::MappingStart(0), mark))
+                Ok(ParsedEventMarker::new(Event::MappingStart(None), mark))
             }
             _ => {
                 self.push_state(State::FlowSequenceEntry);
