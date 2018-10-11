@@ -1,6 +1,7 @@
 use linked_hash_map::LinkedHashMap;
 use parser::*;
 use scanner::{Marker, ScanError, TScalarStyle, TokenType};
+use settings::{YamlSettings, YamlStandardSettings};
 use std::collections::BTreeMap;
 use std::f64;
 use std::i64;
@@ -80,16 +81,16 @@ impl NodeWithAnchor {
     }
 }
 
-pub struct YamlLoader {
+pub struct YamlLoader<TS: YamlSettings = YamlStandardSettings> {
+    settings: TS,
     docs: Vec<Yaml>,
     // states
-    // (current node, anchor_id) tuple
     doc_stack: Vec<NodeWithAnchor>,
     key_stack: Vec<Yaml>,
     anchor_map: BTreeMap<AnchorId, Yaml>,
 }
 
-impl MarkedEventReceiver for YamlLoader {
+impl<TS: YamlSettings> MarkedEventReceiver for YamlLoader<TS> {
     fn on_event(&mut self, ev: Event, _: Marker) {
         // println!("EV {:?}", ev);
         match ev {
@@ -159,9 +160,13 @@ impl MarkedEventReceiver for YamlLoader {
                 self.insert_new_node(NodeWithAnchor::new(node, anchor));
             }
             Event::Alias(anchor_id) => {
-                let n = match self.anchor_map.get(&anchor_id) {
-                    Some(v) => v.clone(),
-                    None => Yaml::BadValue,
+                let n = if self.settings.is_aliases_allowed() {
+                    match self.anchor_map.get(&anchor_id) {
+                        Some(v) => v.clone(),
+                        None => Yaml::BadValue,
+                    }
+                } else {
+                    Yaml::BadValue
                 };
                 self.insert_new_node(NodeWithAnchor::new(n, None));
             }
@@ -171,7 +176,7 @@ impl MarkedEventReceiver for YamlLoader {
     }
 }
 
-impl YamlLoader {
+impl<TS: YamlSettings> YamlLoader<TS> {
     fn insert_new_node(&mut self, node: NodeWithAnchor) {
         // valid anchor id starts from 1
         if let Some(anchor_id) = node.anchor {
@@ -200,21 +205,28 @@ impl YamlLoader {
         }
     }
 
-    pub fn load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
+    pub fn load_from_str(source: &str, settings: &TS) -> Result<Vec<Yaml>, ScanError> {
         let mut loader = YamlLoader {
+            settings: settings.clone(),
             docs: Vec::new(),
             doc_stack: Vec::new(),
             key_stack: Vec::new(),
             anchor_map: BTreeMap::new(),
         };
-        let mut parser = Parser::new(source.chars());
+        let mut parser = Parser::new(source.chars(), &loader.settings);
         parser.load(&mut loader, true)?;
         Ok(loader.docs)
     }
 }
 
 pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
-    YamlLoader::load_from_str(source)
+    let settings = YamlStandardSettings::new();
+    YamlLoader::load_from_str(source, &settings)
+}
+
+pub fn yaml_load_from_str_safe(source: &str) -> Result<Vec<Yaml>, ScanError> {
+    let settings = YamlStandardSettings::new_safe();
+    YamlLoader::load_from_str(source, &settings)
 }
 
 fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
@@ -231,7 +243,7 @@ fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
 }
 
 pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
-    get_one_doc(YamlLoader::load_from_str(source))
+    get_one_doc(yaml_load_from_str(source))
 }
 
 macro_rules! define_as (
@@ -760,4 +772,21 @@ subcommands3:
         let s = "[".repeat(10_000) + &"]".repeat(10_000);
         assert!(yaml_load_from_str(&s).is_err());
     }
+
+    #[test]
+    fn test_lol_bomb() {
+        let s = "
+a: &a [\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\",\"lol\"]
+b: &b [*a,*a,*a,*a,*a,*a,*a,*a,*a]
+c: &c [*b,*b,*b,*b,*b,*b,*b,*b,*b]
+d: &d [*c,*c,*c,*c,*c,*c,*c,*c,*c]
+e: &e [*d,*d,*d,*d,*d,*d,*d,*d,*d]
+f: &f [*e,*e,*e,*e,*e,*e,*e,*e,*e]
+g: &g [*f,*f,*f,*f,*f,*f,*f,*f,*f]
+h: &h [*g,*g,*g,*g,*g,*g,*g,*g,*g]
+i: &i [*h,*h,*h,*h,*h,*h,*h,*h,*h]
+";
+        let doc = yaml_load_doc_from_str_safe(s).unwrap();
+        assert!(doc["i"][0].is_badvalue());
+    }    
 }
