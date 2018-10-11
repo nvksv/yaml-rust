@@ -2,6 +2,7 @@ use scanner::{Marker, ScanError, TScalarStyle, TokenType};
 use parser::*;
 use yaml::{Yaml, Hash};
 use settings::{YamlSettings, YamlStandardSettings};
+use builder::{YamlBuilder, YamlStandardBuilder, YamlNodeKind};
 
 use std::mem;
 use std::collections::BTreeMap;
@@ -19,13 +20,13 @@ pub fn parse_f64(v: &str) -> Option<f64> {
     }
 }
 
-struct NodeWithAnchor {
-    node: Yaml,
+struct NodeWithAnchor<TB> where TB: YamlBuilder {
+    node: TB::NodeHandle,
     anchor: Option<AnchorId>,
 }
 
-impl NodeWithAnchor {
-    fn new( node: Yaml, anchor: Option<AnchorId> ) -> Self {
+impl<TB> NodeWithAnchor<TB> where TB: YamlBuilder {
+    fn new( node: TB::NodeHandle, anchor: Option<AnchorId> ) -> Self {
         Self {
             node,
             anchor,
@@ -33,49 +34,61 @@ impl NodeWithAnchor {
     }
 }
 
-pub struct YamlLoader<TS: YamlSettings = YamlStandardSettings> {
+pub struct YamlLoader<TS = YamlStandardSettings, TB = YamlStandardBuilder<TS>> where TS: YamlSettings, TB: YamlBuilder {
     settings: TS,
-    docs: Vec<Yaml>,
+    builder: TB,
     // states
-    doc_stack: Vec<NodeWithAnchor>,
-    key_stack: Vec<Yaml>,
-    anchor_map: BTreeMap<AnchorId, Yaml>,
+    doc_stack: Vec<NodeWithAnchor<TB>>,
+    key_stack: Vec<TB::NodeHandle>,
+    anchor_map: BTreeMap<AnchorId, TB::NodeHandle>,
+    doc: Option<TB::NodeHandle>,
 }
 
-impl<TS: YamlSettings> MarkedEventReceiver for YamlLoader<TS> {
-    fn on_event(&mut self, ev: Event, _: Marker) {
+impl<TS, TB> MarkedEventReceiver for YamlLoader<TS, TB> where TS: YamlSettings, TB: YamlBuilder {
+    fn on_event(&mut self, ev: Event, marker: Marker) {
         // println!("EV {:?}", ev);
         match ev {
             Event::DocumentStart => {
-                // do nothing
+                self.doc = Some(self.builder.new_document(marker));
             }
             Event::DocumentEnd => {
-                match self.doc_stack.len() {
-                    // empty document
-                    0 => self.docs.push(Yaml::BadValue),
-                    1 => self.docs.push(self.doc_stack.pop().unwrap().node),
+                let content = match self.doc_stack.len() {
+                    // empty document                    
+                    0 => self.builder.new_badvalue(marker), 
+                    // document content node
+                    1 => self.doc_stack.pop().unwrap().node,
                     _ => unreachable!(),
-                }
+                };
+                if let Some(doc) = self.doc {
+                    self.builder.close_document(doc, content);
+                } else {
+                    unreachable!()
+                };
+                self.doc = None;
             }
             Event::SequenceStart(anchor) => {
-                self.doc_stack.push(NodeWithAnchor::new(Yaml::Array(Vec::new()), anchor));
+                self.doc_stack
+                    .push(NodeWithAnchor::new(self.builder.new_sequence(marker), anchor));
             }
             Event::SequenceEnd => {
                 let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
+                self.builder.close_sequence(node.node);
+                self.insert_new_node(node, marker);
             }
             Event::MappingStart(anchor) => {
-                self.doc_stack.push(NodeWithAnchor::new(Yaml::Hash(Hash::new()), anchor));
-                self.key_stack.push(Yaml::BadValue);
+                self.doc_stack
+                    .push(NodeWithAnchor::new(self.builder.new_mapping(marker), anchor));
+                self.key_stack.push(self.builder.new_badvalue(marker));
             }
             Event::MappingEnd => {
                 self.key_stack.pop().unwrap();
                 let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
+                self.builder.close_mapping(node.node);
+                self.insert_new_node(node, marker);
             }
             Event::Scalar{value, style, anchor, tag} => {
                 let node = if style != TScalarStyle::Plain {
-                    Yaml::String(value)
+                    self.builder.new_string(value, marker)
                 } else if let Some(TokenType::Tag(ref handle, ref suffix)) = tag {
                     // XXX tag:yaml.org,2002:
                     if handle == "!!" {
@@ -83,44 +96,44 @@ impl<TS: YamlSettings> MarkedEventReceiver for YamlLoader<TS> {
                             "bool" => {
                                 // "true" or "false"
                                 match value.parse::<bool>() {
-                                    Err(_) => Yaml::BadValue,
-                                    Ok(v) => Yaml::Boolean(v),
+                                    Err(_) => self.builder.new_badvalue(marker),
+                                    Ok(v) => self.builder.new_bool(v, marker),
                                 }
                             }
                             "int" => match value.parse::<i64>() {
-                                Err(_) => Yaml::BadValue,
-                                Ok(v) => Yaml::Integer(v),
+                                Err(_) => self.builder.new_badvalue(marker),
+                                Ok(v) => self.builder.new_int(v, marker),
                             },
                             "float" => match parse_f64(&value) {
-                                Some(_) => Yaml::Real(value),
-                                None => Yaml::BadValue,
+                                Some(v) => self.builder.new_float(v, marker),
+                                None => self.builder.new_badvalue(marker),
                             },
                             "null" => match value.as_ref() {
-                                "~" | "null" => Yaml::Null,
-                                _ => Yaml::BadValue,
+                                "~" | "null" => self.builder.new_null(marker),
+                                _ => self.builder.new_badvalue(marker),
                             },
-                            _ => Yaml::String(value),
+                            _ => self.builder.new_string(value, marker),
                         }
                     } else {
-                        Yaml::String(value)
+                        self.builder.new_string(value, marker)
                     }
                 } else {
                     // Datatype is not specified, or unrecognized
-                    Yaml::from_str(&value)
+                    self.from_str(&value, marker)
                 };
 
-                self.insert_new_node(NodeWithAnchor::new(node, anchor));
+                self.insert_new_node(NodeWithAnchor::new(node, anchor), marker);
             }
             Event::Alias(anchor_id) => {
                 let n = if self.settings.is_aliases_allowed() {
                     match self.anchor_map.get(&anchor_id) {
-                        Some(v) => v.clone(),
-                        None => Yaml::BadValue,
+                        Some(&v) => self.builder.clone_node(v),
+                        None => self.builder.new_badvalue(marker),
                     }
                 } else {
-                    Yaml::BadValue
+                    self.builder.new_badvalue(marker)
                 };
-                self.insert_new_node(NodeWithAnchor::new(n, None));
+                self.insert_new_node(NodeWithAnchor::new(n, None), marker);
             }
             _ => { /* ignore */ }
         }
@@ -128,28 +141,69 @@ impl<TS: YamlSettings> MarkedEventReceiver for YamlLoader<TS> {
     }
 }
 
-impl<TS: YamlSettings> YamlLoader<TS> {
-    fn insert_new_node(&mut self, node: NodeWithAnchor) {
-        // valid anchor id starts from 1
-        if let Some(anchor_id) = node.anchor {
-            self.anchor_map.insert(anchor_id, node.node.clone());
+impl<TS, TB> YamlLoader<TS, TB> where TS: YamlSettings, TB: YamlBuilder {
+    
+    fn new(settings: &TS, builder: &TB) -> Self {
+        YamlLoader {
+            settings: settings.clone(),
+            builder: builder.clone(),
+            doc_stack: Vec::new(),
+            key_stack: Vec::new(),
+            anchor_map: BTreeMap::new(),
+            doc: None,
+        }
+    }
+
+    pub fn from_str(&mut self, v: &str, marker: Marker) -> TB::NodeHandle {
+        if v.starts_with("0x") {
+            if let Ok(i) = i64::from_str_radix(&v[2..], 16) {
+                return self.builder.new_int(i, marker);
+            }
+        } else if v.starts_with("0o") {
+            if let Ok(i) = i64::from_str_radix(&v[2..], 8) {
+                return self.builder.new_int(i, marker);
+            }
+        } else if v.starts_with('+') {
+            if let Ok(i) = v[1..].parse::<i64>() {
+                return self.builder.new_int(i, marker);
+            }
+        } else if let Ok(i) = v.parse::<i64>() {
+            return self.builder.new_int(i, marker);
+        } else if let Some(f) = parse_f64(v) {
+            return self.builder.new_float(f, marker);
+        }
+        match v {
+            "~" | "null" => self.builder.new_null(marker),
+            "true" => self.builder.new_bool(true, marker),
+            "false" => self.builder.new_bool(false, marker),
+            _ => self.builder.new_string(v.to_owned(), marker),
+        }
+    }
+
+    fn insert_new_node(&mut self, node: NodeWithAnchor<TB>, marker: Marker) {
+        if self.settings.is_aliases_allowed() {
+            if let Some(anchor_id) = node.anchor {
+                self.anchor_map
+                    .insert(anchor_id, self.builder.clone_node(node.node));
+            }
         }
         if self.doc_stack.is_empty() {
             self.doc_stack.push(node);
         } else {
             let parent = self.doc_stack.last_mut().unwrap();
-            match *parent {
-                NodeWithAnchor{node: Yaml::Array(ref mut v), anchor: _} => v.push(node.node),
-                NodeWithAnchor{node: Yaml::Hash(ref mut h), anchor: _} => {
+            match self.builder.get_node_kind(parent.node) {
+                YamlNodeKind::Sequence => self.builder.add_to_sequence(parent.node, node.node),
+                YamlNodeKind::Mapping => {
                     let cur_key = self.key_stack.last_mut().unwrap();
                     // current node is a key
-                    if cur_key.is_badvalue() {
+                    if self.builder.is_badvalue(*cur_key) {
                         *cur_key = node.node;
                     // current node is a value
                     } else {
-                        let mut newkey = Yaml::BadValue;
+                        // current node is a value
+                        let mut newkey = self.builder.new_badvalue(marker);
                         mem::swap(&mut newkey, cur_key);
-                        h.insert(newkey, node.node);
+                        self.builder.add_to_mapping(parent.node, newkey, node.node);
                     }
                 }
                 _ => unreachable!(),
@@ -157,45 +211,44 @@ impl<TS: YamlSettings> YamlLoader<TS> {
         }
     }
 
-    pub fn load_from_str(source: &str, settings: &TS) -> Result<Vec<Yaml>, ScanError> {
-        let mut loader = YamlLoader {
-            settings: settings.clone(),
-            docs: Vec::new(),
-            doc_stack: Vec::new(),
-            key_stack: Vec::new(),
-            anchor_map: BTreeMap::new(),
-        };
-        let mut parser = Parser::new(source.chars(), &loader.settings);
-        parser.load(&mut loader, true)?;
-        Ok(loader.docs)
+    pub fn load_from_iter<T: Iterator<Item = char>>(&mut self, source: T) -> Result<(), ScanError> {
+        let mut parser = Parser::new(source, &self.settings);
+        parser.load(self, true)?;
+        Ok(())
     }
+}
+
+pub fn yaml_load_from_str_with_settings<TS>(source: &str, settings: &TS) -> Result<Vec<Yaml>, ScanError> where TS: YamlSettings {
+    let builder = YamlStandardBuilder::new(settings);
+    let mut loader = YamlLoader::new(settings, &builder);
+    loader.load_from_iter(source.chars())?;
+    Ok(builder.into_documents())
 }
 
 pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
     let settings = YamlStandardSettings::new();
-    YamlLoader::load_from_str(source, &settings)
+    yaml_load_from_str_with_settings(source, &settings)
 }
 
 pub fn yaml_load_from_str_safe(source: &str) -> Result<Vec<Yaml>, ScanError> {
     let settings = YamlStandardSettings::new_safe();
-    YamlLoader::load_from_str(source, &settings)
+    yaml_load_from_str_with_settings(source, &settings)
+}
+
+fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
+    let mut docs = res.ok()?;
+    if docs.len() != 1 {
+        return None;
+    }
+    let doc = docs.swap_remove(0);
+    Some(doc)
 }
 
 pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
-    let mut docs = yaml_load_from_str(source).ok()?;
-    if docs.len() != 1 {
-        return None;
-    }
-    let doc = docs.swap_remove(0);
-    Some(doc)
+    get_one_doc(yaml_load_from_str(source))
 }
 
 pub fn yaml_load_doc_from_str_safe(source: &str) -> Option<Yaml> {
-    let mut docs = yaml_load_from_str_safe(source).ok()?;
-    if docs.len() != 1 {
-        return None;
-    }
-    let doc = docs.swap_remove(0);
-    Some(doc)
+    get_one_doc(yaml_load_from_str_safe(source))
 }
 

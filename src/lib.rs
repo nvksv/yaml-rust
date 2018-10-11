@@ -51,6 +51,7 @@ pub mod scanner;
 pub mod yaml;
 pub mod loader;
 pub mod settings;
+pub mod builder;
 
 // reexport key APIs
 pub use emitter::{EmitError, YamlEmitter, yaml_dump, yaml_dump_compact};
