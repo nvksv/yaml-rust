@@ -4,6 +4,7 @@ extern crate yaml_rust;
 
 use yaml_rust::parser::{Event, EventReceiver, Parser};
 use yaml_rust::scanner::TScalarStyle;
+use yaml_rust::settings::YamlStandardSettings;
 
 // These names match the names used in the C++ test suite.
 #[cfg_attr(feature = "cargo-clippy", allow(enum_variant_names))]
@@ -49,7 +50,8 @@ impl EventReceiver for YamlChecker {
 
 fn str_to_test_events(docs: &str) -> Vec<TestEvent> {
     let mut p = YamlChecker { evs: Vec::new() };
-    let mut parser = Parser::new(docs.chars());
+    let settings = YamlStandardSettings::new();
+    let mut parser = Parser::new(docs.chars(), &settings);
     parser.load(&mut p, true).unwrap();
     p.evs
 }

@@ -49,12 +49,14 @@ pub mod emitter;
 pub mod parser;
 pub mod scanner;
 pub mod yaml;
+pub mod settings;
 
 // reexport key APIs
 pub use emitter::{EmitError, YamlEmitter, yaml_dump, yaml_dump_compact};
 pub use parser::Event;
 pub use scanner::ScanError;
-pub use yaml::{Yaml, YamlLoader, yaml_load_from_str, yaml_load_doc_from_str};
+pub use yaml::{Yaml, YamlLoader, yaml_load_from_str, yaml_load_doc_from_str, yaml_load_from_str_safe, yaml_load_doc_from_str_safe};
+pub use settings::{YamlSettings, YamlStandardSettings};
 
 #[cfg(test)]
 mod tests {

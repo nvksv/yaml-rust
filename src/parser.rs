@@ -1,4 +1,5 @@
 use scanner::*;
+use settings::YamlSettings;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Debug, Eq)]
@@ -65,8 +66,9 @@ impl Event {
 }
 
 #[derive(Debug)]
-pub struct Parser<T> {
-    scanner: Scanner<T>,
+pub struct Parser<TR, TS> {
+    settings: TS,
+    scanner: Scanner<TR>,
     states: Vec<State>,
     state: State,
     marks: Vec<Marker>,
@@ -107,9 +109,10 @@ impl ParsedEventMarker {
 
 pub type ParseResult = Result<ParsedEventMarker, ScanError>;
 
-impl<T: Iterator<Item = char>> Parser<T> {
-    pub fn new(src: T) -> Parser<T> {
+impl<TR: Iterator<Item = char>, TS: YamlSettings> Parser<TR, TS> {
+    pub fn new(src: TR, settings: &TS) -> Parser<TR, TS> {
         Parser {
+            settings: settings.clone(),
             scanner: Scanner::new(src),
             states: Vec::new(),
             state: State::StreamStart,
@@ -848,6 +851,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
 #[cfg(test)]
 mod test {
     use super::{Event, Parser};
+    use settings::YamlStandardSettings;
 
     #[test]
     fn test_peek_eq_parse() {
@@ -863,7 +867,8 @@ a4:
     - 2
 a5: *x
 ";
-        let mut p = Parser::new(s.chars());
+        let settings = YamlStandardSettings::new();
+        let mut p = Parser::new(s.chars(), &settings);
         while {
             let event_peek = p.peek().unwrap().clone();
             let event = p.next().unwrap();
