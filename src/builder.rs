@@ -1,4 +1,3 @@
-use std::fmt;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -56,7 +55,7 @@ pub struct YamlStandardBuilder<TS> where TS: YamlSettings {
 }
 
 struct YamlStandardBuilderData<TS> where TS: YamlSettings {
-    settings: TS,
+    _settings: TS,
     counter: NodeHandle,
     nodes: BTreeMap<NodeHandle, Yaml>,
     docs: Vec<Yaml>,
@@ -66,7 +65,7 @@ impl<TS> YamlStandardBuilderData<TS> where TS: YamlSettings {
 
     fn new(settings: &TS) -> Self {
         Self {
-            settings: settings.clone(),
+            _settings: settings.clone(),
             counter: 1,
             nodes: BTreeMap::new(),
             docs: Vec::new(),
@@ -131,7 +130,7 @@ impl<TS> YamlBuilder for YamlStandardBuilder<TS> where TS: YamlSettings {
     }
 
     fn new_sequence(&mut self, _marker: Marker) -> NodeHandle {
-        let node = Yaml::Array(Vec::new());
+        let node = Yaml::Array(YamlSeq::new());
         self.v.borrow_mut().push_node(node)
     }
 
