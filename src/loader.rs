@@ -1,6 +1,6 @@
 use scanner::{Marker, ScanError, TScalarStyle, TokenType};
 use parser::*;
-use yaml::{Yaml, Hash};
+use yaml::Yaml;
 use settings::{YamlSettings, YamlStandardSettings};
 use builder::{YamlBuilder, YamlStandardBuilder, YamlNodeKind};
 
