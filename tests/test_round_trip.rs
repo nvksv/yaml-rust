@@ -1,11 +1,11 @@
 extern crate yaml_rust;
 
-use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
+use yaml_rust::{Yaml, yaml_dump, yaml_load_from_str};
 
 fn test_round_trip(original: &Yaml) {
     let mut out = String::new();
-    YamlEmitter::new(&mut out).dump(original).unwrap();
-    let documents = YamlLoader::load_from_str(&out).unwrap();
+    yaml_dump(&mut out, original).unwrap();
+    let documents = yaml_load_from_str(&out).unwrap();
     assert_eq!(documents.len(), 1);
     assert_eq!(documents[0], *original);
 }

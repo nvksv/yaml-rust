@@ -77,7 +77,7 @@ include!("spec_test.rs.inc");
 #[test]
 fn test_mapvec_legal() {
     use yaml_rust::yaml::{Array, Hash, Yaml};
-    use yaml_rust::{YamlEmitter, YamlLoader};
+    use yaml_rust::{yaml_dump, yaml_load_from_str};
 
     // Emitting a `map<map<seq<_>>, _>` should result in legal yaml that
     // we can parse.
@@ -99,10 +99,7 @@ fn test_mapvec_legal() {
     hash.insert(Yaml::Hash(keyhash), Yaml::Array(val));
 
     let mut out_str = String::new();
-    {
-        let mut emitter = YamlEmitter::new(&mut out_str);
-        emitter.dump(&Yaml::Hash(hash)).unwrap();
-    }
+    yaml_dump(&mut out_str, &Yaml::Hash(hash)).unwrap();
 
     // At this point, we are tempted to naively render like this:
     //
@@ -136,5 +133,5 @@ fn test_mapvec_legal() {
     //    - 6
     //  ```
 
-    YamlLoader::load_from_str(&out_str).unwrap();
+    yaml_load_from_str(&out_str).unwrap();
 }

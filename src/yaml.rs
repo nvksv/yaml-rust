@@ -199,6 +199,20 @@ impl YamlLoader {
     }
 }
 
+pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
+    YamlLoader::load_from_str(source)
+}
+
+pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
+    let mut docs = YamlLoader::load_from_str(source).ok()?;
+    if docs.len() != 1 {
+        return None;
+    }
+    let doc = docs.swap_remove(0);
+    Some(doc)
+}
+
+
 macro_rules! define_as (
     ($name:ident, $t:ident, $yt:ident) => (
 pub fn $name(&self) -> Option<$t> {
@@ -376,8 +390,7 @@ a: 1
 b: 2.2
 c: [1, 2]
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
         assert_eq!(doc["a"].as_i64().unwrap(), 1i64);
         assert_eq!(doc["b"].as_f64().unwrap(), 2.2f64);
         assert_eq!(doc["c"][1].as_i64().unwrap(), 2i64);
@@ -387,9 +400,9 @@ c: [1, 2]
     #[test]
     fn test_empty_doc() {
         let s: String = "".to_owned();
-        YamlLoader::load_from_str(&s).unwrap();
+        yaml_load_from_str(&s).unwrap();
         let s: String = "---".to_owned();
-        assert_eq!(YamlLoader::load_from_str(&s).unwrap()[0], Yaml::Null);
+        assert_eq!(yaml_load_doc_from_str(&s).unwrap(), Yaml::Null);
     }
 
     #[test]
@@ -410,8 +423,7 @@ a5: 'single_quoted'
 a6: \"double_quoted\"
 a7: 你好
 ".to_owned();
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
         assert_eq!(doc["a7"].as_str().unwrap(), "你好");
     }
 
@@ -424,7 +436,7 @@ a7: 你好
 ---
 'a scalar'
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
+        let out = yaml_load_from_str(&s).unwrap();
         assert_eq!(out.len(), 3);
     }
 
@@ -436,8 +448,7 @@ a1: &DEFAULT
     b2: d
 a2: *DEFAULT
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
         assert_eq!(doc["a2"]["b1"].as_i64().unwrap(), 4);
     }
 
@@ -448,8 +459,7 @@ a1: &DEFAULT
     b1: 4
     b2: *DEFAULT
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
         assert_eq!(doc["a1"]["b2"], Yaml::BadValue);
     }
 
@@ -457,8 +467,7 @@ a1: &DEFAULT
     fn test_github_27() {
         // https://github.com/chyh1990/yaml-rust/issues/27
         let s = "&a";
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
         assert_eq!(doc.as_str().unwrap(), "");
     }
 
@@ -493,8 +502,7 @@ a1: &DEFAULT
 - +12345
 - [ true, false ]
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
-        let doc = &out[0];
+        let doc = yaml_load_doc_from_str(&s).unwrap();
 
         assert_eq!(doc[0].as_str().unwrap(), "string");
         assert_eq!(doc[1].as_str().unwrap(), "string");
@@ -530,29 +538,29 @@ a1: &DEFAULT
     fn test_bad_hypen() {
         // See: https://github.com/chyh1990/yaml-rust/issues/23
         let s = "{-";
-        assert!(YamlLoader::load_from_str(&s).is_err());
+        assert!(yaml_load_from_str(&s).is_err());
     }
 
     #[test]
     fn test_issue_65() {
         // See: https://github.com/chyh1990/yaml-rust/issues/65
         let b = "\n\"ll\\\"ll\\\r\n\"ll\\\"ll\\\r\r\r\rU\r\r\rU";
-        assert!(YamlLoader::load_from_str(&b).is_err());
+        assert!(yaml_load_from_str(&b).is_err());
     }
 
     #[test]
     fn test_bad_docstart() {
-        assert!(YamlLoader::load_from_str("---This used to cause an infinite loop").is_ok());
+        assert!(yaml_load_from_str("---This used to cause an infinite loop").is_ok());
         assert_eq!(
-            YamlLoader::load_from_str("----"),
+            yaml_load_from_str("----"),
             Ok(vec![Yaml::String(String::from("----"))])
         );
         assert_eq!(
-            YamlLoader::load_from_str("--- #here goes a comment"),
+            yaml_load_from_str("--- #here goes a comment"),
             Ok(vec![Yaml::Null])
         );
         assert_eq!(
-            YamlLoader::load_from_str("---- #here goes a comment"),
+            yaml_load_from_str("---- #here goes a comment"),
             Ok(vec![Yaml::String(String::from("----"))])
         );
     }
@@ -581,7 +589,7 @@ a1: &DEFAULT
 - .NAN
 - !!float .INF
 ";
-        let mut out = YamlLoader::load_from_str(&s).unwrap().into_iter();
+        let mut out = yaml_load_from_str(&s).unwrap().into_iter();
         let mut doc = out.next().unwrap().into_iter();
 
         assert_eq!(doc.next().unwrap().into_string().unwrap(), "string");
@@ -613,7 +621,7 @@ b: ~
 a: ~
 c: ~
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
+        let out = yaml_load_from_str(&s).unwrap();
         let first = out.into_iter().next().unwrap();
         let mut iter = first.into_hash().unwrap().into_iter();
         assert_eq!(
@@ -639,14 +647,14 @@ c: ~
 1:
     important: false
 ";
-        let out = YamlLoader::load_from_str(&s).unwrap();
+        let out = yaml_load_from_str(&s).unwrap();
         let first = out.into_iter().next().unwrap();
         assert_eq!(first[0]["important"].as_bool().unwrap(), true);
     }
 
     #[test]
     fn test_indentation_equality() {
-        let four_spaces = YamlLoader::load_from_str(
+        let four_spaces = yaml_load_from_str(
             r#"
 hash:
     with:
@@ -657,7 +665,7 @@ hash:
         .next()
         .unwrap();
 
-        let two_spaces = YamlLoader::load_from_str(
+        let two_spaces = yaml_load_from_str(
             r#"
 hash:
   with:
@@ -668,7 +676,7 @@ hash:
         .next()
         .unwrap();
 
-        let one_space = YamlLoader::load_from_str(
+        let one_space = yaml_load_from_str(
             r#"
 hash:
  with:
@@ -679,7 +687,7 @@ hash:
         .next()
         .unwrap();
 
-        let mixed_spaces = YamlLoader::load_from_str(
+        let mixed_spaces = yaml_load_from_str(
             r#"
 hash:
      with:
@@ -711,7 +719,7 @@ subcommands3:
     about: server related commands
             "#;
 
-        let out = YamlLoader::load_from_str(&s).unwrap();
+        let out = yaml_load_from_str(&s).unwrap();
         let doc = &out.into_iter().next().unwrap();
 
         println!("{:#?}", doc);
@@ -723,12 +731,12 @@ subcommands3:
     #[test]
     fn test_recursion_depth_check_objects() {
         let s = "{a:".repeat(10_000) + &"}".repeat(10_000);
-        assert!(YamlLoader::load_from_str(&s).is_err());
+        assert!(yaml_load_from_str(&s).is_err());
     }
 
     #[test]
     fn test_recursion_depth_check_arrays() {
         let s = "[".repeat(10_000) + &"]".repeat(10_000);
-        assert!(YamlLoader::load_from_str(&s).is_err());
+        assert!(yaml_load_from_str(&s).is_err());
     }
 }

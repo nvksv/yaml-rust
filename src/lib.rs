@@ -24,15 +24,14 @@
 //! # Examples
 //!
 //! ```
-//! use yaml_rust::{YamlLoader, YamlEmitter};
+//! use yaml_rust::{yaml_load_from_str, yaml_dump};
 //!
-//! let docs = YamlLoader::load_from_str("[1, 2, 3]").unwrap();
+//! let docs = yaml_load_from_str("[1, 2, 3]").unwrap();
 //! let doc = &docs[0]; // select the first document
 //! assert_eq!(doc[0].as_i64().unwrap(), 1); // access elements by index
 //!
 //! let mut out_str = String::new();
-//! let mut emitter = YamlEmitter::new(&mut out_str);
-//! emitter.dump(doc).unwrap(); // dump the YAML object to a String
+//! yaml_dump(&mut out_str, doc).unwrap(); // dump the YAML object to a String
 //!
 //! ```
 
@@ -52,10 +51,10 @@ pub mod scanner;
 pub mod yaml;
 
 // reexport key APIs
-pub use emitter::{EmitError, YamlEmitter};
+pub use emitter::{EmitError, YamlEmitter, yaml_dump, yaml_dump_compact};
 pub use parser::Event;
 pub use scanner::ScanError;
-pub use yaml::{Yaml, YamlLoader};
+pub use yaml::{Yaml, YamlLoader, yaml_load_from_str, yaml_load_doc_from_str};
 
 #[cfg(test)]
 mod tests {
@@ -87,22 +86,18 @@ mod tests {
     - name: Staff
       damage: 3
 ";
-        let docs = YamlLoader::load_from_str(s).unwrap();
-        let doc = &docs[0];
+        let doc = yaml_load_doc_from_str(s).unwrap();
 
         assert_eq!(doc[0]["name"].as_str().unwrap(), "Ogre");
 
         let mut writer = String::new();
-        {
-            let mut emitter = YamlEmitter::new(&mut writer);
-            emitter.dump(doc).unwrap();
-        }
+        yaml_dump(&mut writer, &doc).unwrap();
 
         assert!(!writer.is_empty());
     }
 
     fn try_fail(s: &str) -> Result<Vec<Yaml>, ScanError> {
-        let t = YamlLoader::load_from_str(s)?;
+        let t = yaml_load_from_str(s)?;
         Ok(t)
     }
 
@@ -114,7 +109,7 @@ scalar
 key: [1, 2]]
 key1:a2
 ";
-        assert!(YamlLoader::load_from_str(s).is_err());
+        assert!(yaml_load_from_str(s).is_err());
         assert!(try_fail(s).is_err());
     }
 

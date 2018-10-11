@@ -38,7 +38,7 @@ fn main() {
     let mut s = String::new();
     f.read_to_string(&mut s).unwrap();
 
-    let docs = yaml::YamlLoader::load_from_str(&s).unwrap();
+    let docs = yaml::yaml_load_from_str(&s).unwrap();
     for doc in &docs {
         println!("---");
         dump_node(doc, 0);
