@@ -355,7 +355,7 @@ fn need_quotes(string: &str) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use yaml::{yaml_load_from_str, yaml_load_doc_from_str};
+    use loader::{yaml_load_from_str, yaml_load_doc_from_str};
 
     #[test]
     fn test_emit_simple() {
