@@ -2,7 +2,10 @@
 
 The missing YAML 1.2 implementation for Rust.
 
-[![Travis](https://travis-ci.org/nvksv/yaml-rust.svg?branch=develop)](https://travis-ci.org/nvksv/yaml-rust)
+[![Travis](https://travis-ci.org/chyh1990/yaml-rust.svg?branch=master)](https://travis-ci.org/chyh1990/yaml-rust)
+[![AppVeyor](https://ci.appveyor.com/api/projects/status/scf47535ckp4ylg4?svg=true)](https://ci.appveyor.com/project/chyh1990/yaml-rust)
+[![crates.io](https://img.shields.io/crates/v/yaml-rust.svg)](https://crates.io/crates/yaml-rust)
+[![docs.rs](https://img.shields.io/badge/api-rustdoc-blue.svg)](https://docs.rs/yaml-rust)
 
 `yaml-rust` is a pure Rust YAML 1.2 implementation,
 which enjoys the memory safety
@@ -15,7 +18,7 @@ Add the following to the Cargo.toml of your project:
 
 ```toml
 [dependencies]
-yaml-rust = { git = "https://github.com/nvksv/yaml-rust.git" }
+yaml-rust = "0.4"
 ```
 
 and import:
@@ -24,12 +27,12 @@ and import:
 extern crate yaml_rust;
 ```
 
-Use `yaml::yaml_load_from_str` to load the YAML documents and access it
+Use `yaml::YamlLoader` to load the YAML documents and access it
 as Vec/HashMap:
 
 ```rust
 extern crate yaml_rust;
-use yaml_rust::{yaml_load_from_str, yaml_dump};
+use yaml_rust::{YamlLoader, YamlEmitter};
 
 fn main() {
     let s =
@@ -41,7 +44,7 @@ bar:
     - 1
     - 2.0
 ";
-    let docs = yaml_load_doc_from_str(s).unwrap();
+    let docs = YamlLoader::load_from_str(s).unwrap();
 
     // Multi document support, doc is a yaml::Yaml
     let doc = &docs[0];
@@ -59,7 +62,10 @@ bar:
 
     // Dump the YAML object
     let mut out_str = String::new();
-    yaml_dump(&mut out_str, doc).unwrap(); // dump the YAML object to a String
+    {
+        let mut emitter = YamlEmitter::new(&mut out_str);
+        emitter.dump(doc).unwrap(); // dump the YAML object to a String
+    }
     println!("{}", out_str);
 }
 ```
