@@ -1,14 +1,16 @@
 use linked_hash_map::LinkedHashMap;
-use parser::*;
-use scanner::{Marker, ScanError, TScalarStyle, TokenType};
-use settings::{YamlSettings, YamlStandardSettings};
-use std::collections::BTreeMap;
+use parser::AnchorId;
+use loader::parse_f64;
 use std::f64;
 use std::i64;
-use std::mem;
 use std::ops::Index;
 use std::string;
 use std::vec;
+
+pub type Int = i64;
+pub type Float = f64;
+pub type Bool = bool;
+pub type String = string::String;
 
 /// A YAML node is stored as this `Yaml` enumeration, which provides an easy way to
 /// access your YAML document.
@@ -30,13 +32,13 @@ use std::vec;
 pub enum Yaml {
     /// Float types are stored as String and parsed on demand.
     /// Note that f64 does NOT implement Eq trait and can NOT be stored in BTreeMap.
-    Real(string::String),
+    Real(String),
     /// YAML int is stored as i64.
-    Integer(i64),
+    Integer(Int),
     /// YAML scalar.
-    String(string::String),
+    String(String),
     /// YAML bool, e.g. `true` or `false`.
-    Boolean(bool),
+    Boolean(Bool),
     /// YAML array, can be accessed as a `Vec`.
     Array(self::Array),
     /// YAML hash, can be accessed as a `LinkedHashMap`.
@@ -55,200 +57,6 @@ pub enum Yaml {
 
 pub type Array = Vec<Yaml>;
 pub type Hash = LinkedHashMap<Yaml, Yaml>;
-
-// parse f64 as Core schema
-// See: https://github.com/chyh1990/yaml-rust/issues/51
-fn parse_f64(v: &str) -> Option<f64> {
-    match v {
-        ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => Some(f64::INFINITY),
-        "-.inf" | "-.Inf" | "-.INF" => Some(f64::NEG_INFINITY),
-        ".nan" | "NaN" | ".NAN" => Some(f64::NAN),
-        _ => v.parse::<f64>().ok(),
-    }
-}
-
-struct NodeWithAnchor {
-    node: Yaml,
-    anchor: Option<AnchorId>,
-}
-
-impl NodeWithAnchor {
-    fn new( node: Yaml, anchor: Option<AnchorId> ) -> Self {
-        Self {
-            node,
-            anchor,
-        }
-    }
-}
-
-pub struct YamlLoader<TS: YamlSettings = YamlStandardSettings> {
-    settings: TS,
-    docs: Vec<Yaml>,
-    // states
-    doc_stack: Vec<NodeWithAnchor>,
-    key_stack: Vec<Yaml>,
-    anchor_map: BTreeMap<AnchorId, Yaml>,
-}
-
-impl<TS: YamlSettings> MarkedEventReceiver for YamlLoader<TS> {
-    fn on_event(&mut self, ev: Event, _: Marker) {
-        // println!("EV {:?}", ev);
-        match ev {
-            Event::DocumentStart => {
-                // do nothing
-            }
-            Event::DocumentEnd => {
-                match self.doc_stack.len() {
-                    // empty document
-                    0 => self.docs.push(Yaml::BadValue),
-                    1 => self.docs.push(self.doc_stack.pop().unwrap().node),
-                    _ => unreachable!(),
-                }
-            }
-            Event::SequenceStart(anchor) => {
-                self.doc_stack.push(NodeWithAnchor::new(Yaml::Array(Vec::new()), anchor));
-            }
-            Event::SequenceEnd => {
-                let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
-            }
-            Event::MappingStart(anchor) => {
-                self.doc_stack.push(NodeWithAnchor::new(Yaml::Hash(Hash::new()), anchor));
-                self.key_stack.push(Yaml::BadValue);
-            }
-            Event::MappingEnd => {
-                self.key_stack.pop().unwrap();
-                let node = self.doc_stack.pop().unwrap();
-                self.insert_new_node(node);
-            }
-            Event::Scalar{value, style, anchor, tag} => {
-                let node = if style != TScalarStyle::Plain {
-                    Yaml::String(value)
-                } else if let Some(TokenType::Tag(ref handle, ref suffix)) = tag {
-                    // XXX tag:yaml.org,2002:
-                    if handle == "!!" {
-                        match suffix.as_ref() {
-                            "bool" => {
-                                // "true" or "false"
-                                match value.parse::<bool>() {
-                                    Err(_) => Yaml::BadValue,
-                                    Ok(v) => Yaml::Boolean(v),
-                                }
-                            }
-                            "int" => match value.parse::<i64>() {
-                                Err(_) => Yaml::BadValue,
-                                Ok(v) => Yaml::Integer(v),
-                            },
-                            "float" => match parse_f64(&value) {
-                                Some(_) => Yaml::Real(value),
-                                None => Yaml::BadValue,
-                            },
-                            "null" => match value.as_ref() {
-                                "~" | "null" => Yaml::Null,
-                                _ => Yaml::BadValue,
-                            },
-                            _ => Yaml::String(value),
-                        }
-                    } else {
-                        Yaml::String(value)
-                    }
-                } else {
-                    // Datatype is not specified, or unrecognized
-                    Yaml::from_str(&value)
-                };
-
-                self.insert_new_node(NodeWithAnchor::new(node, anchor));
-            }
-            Event::Alias(anchor_id) => {
-                let n = if self.settings.is_aliases_allowed() {
-                    match self.anchor_map.get(&anchor_id) {
-                        Some(v) => v.clone(),
-                        None => Yaml::BadValue,
-                    }
-                } else {
-                    Yaml::BadValue
-                };
-                self.insert_new_node(NodeWithAnchor::new(n, None));
-            }
-            _ => { /* ignore */ }
-        }
-        // println!("DOC {:?}", self.doc_stack);
-    }
-}
-
-impl<TS: YamlSettings> YamlLoader<TS> {
-    fn insert_new_node(&mut self, node: NodeWithAnchor) {
-        // valid anchor id starts from 1
-        if let Some(anchor_id) = node.anchor {
-            self.anchor_map.insert(anchor_id, node.node.clone());
-        }
-        if self.doc_stack.is_empty() {
-            self.doc_stack.push(node);
-        } else {
-            let parent = self.doc_stack.last_mut().unwrap();
-            match *parent {
-                NodeWithAnchor{node: Yaml::Array(ref mut v), anchor: _} => v.push(node.node),
-                NodeWithAnchor{node: Yaml::Hash(ref mut h), anchor: _} => {
-                    let cur_key = self.key_stack.last_mut().unwrap();
-                    // current node is a key
-                    if cur_key.is_badvalue() {
-                        *cur_key = node.node;
-                    // current node is a value
-                    } else {
-                        let mut newkey = Yaml::BadValue;
-                        mem::swap(&mut newkey, cur_key);
-                        h.insert(newkey, node.node);
-                    }
-                }
-                _ => unreachable!(),
-            }
-        }
-    }
-
-    pub fn load_from_str(source: &str, settings: &TS) -> Result<Vec<Yaml>, ScanError> {
-        let mut loader = YamlLoader {
-            settings: settings.clone(),
-            docs: Vec::new(),
-            doc_stack: Vec::new(),
-            key_stack: Vec::new(),
-            anchor_map: BTreeMap::new(),
-        };
-        let mut parser = Parser::new(source.chars(), &loader.settings);
-        parser.load(&mut loader, true)?;
-        Ok(loader.docs)
-    }
-}
-
-pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
-    let settings = YamlStandardSettings::new();
-    YamlLoader::load_from_str(source, &settings)
-}
-
-pub fn yaml_load_from_str_safe(source: &str) -> Result<Vec<Yaml>, ScanError> {
-    let settings = YamlStandardSettings::new_safe();
-    YamlLoader::load_from_str(source, &settings)
-}
-
-fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
-    // Workaround for Rust 1.17: let mut docs = res.ok()?;
-    let mut docs = match res {
-        Ok(v) => v,
-        Err(_) => return None,
-    };
-    if docs.len() != 1 {
-        return None;
-    }
-    let doc = docs.swap_remove(0);
-    Some(doc)
-}
-
-pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
-    get_one_doc(yaml_load_from_str(source))
-}
-
-pub fn yaml_load_doc_from_str_safe(source: &str) -> Option<Yaml> {
-    get_one_doc(yaml_load_from_str_safe(source))
-}
 
 macro_rules! define_as (
     ($name:ident, $t:ident, $yt:ident) => (
@@ -420,6 +228,7 @@ impl Iterator for YamlIter {
 mod test {
     use std::f64;
     use yaml::*;
+    use loader::{yaml_load_from_str, yaml_load_doc_from_str, yaml_load_doc_from_str_safe};
     #[test]
     fn test_coerce() {
         let s = "---

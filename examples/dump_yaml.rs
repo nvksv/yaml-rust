@@ -3,7 +3,7 @@ extern crate yaml_rust;
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
-use yaml_rust::yaml;
+use yaml_rust::{yaml, yaml_load_from_str};
 
 fn print_indent(indent: usize) {
     for _ in 0..indent {
@@ -38,7 +38,7 @@ fn main() {
     let mut s = String::new();
     f.read_to_string(&mut s).unwrap();
 
-    let docs = yaml::yaml_load_from_str(&s).unwrap();
+    let docs = yaml_load_from_str(&s).unwrap();
     for doc in &docs {
         println!("---");
         dump_node(doc, 0);
