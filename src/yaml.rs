@@ -203,9 +203,9 @@ pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
     YamlLoader::load_from_str(source)
 }
 
-pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
-    // Workaround for Rust 1.17: let mut docs = YamlLoader::load_from_str(source).ok()?;
-    let mut docs = match YamlLoader::load_from_str(source) {
+fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
+    // Workaround for Rust 1.17: let mut docs = res.ok()?;
+    let mut docs = match res {
         Ok(v) => v,
         Err(_) => return None,
     };
@@ -216,6 +216,9 @@ pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
     Some(doc)
 }
 
+pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
+    get_one_doc(YamlLoader::load_from_str(source))
+}
 
 macro_rules! define_as (
     ($name:ident, $t:ident, $yt:ident) => (
