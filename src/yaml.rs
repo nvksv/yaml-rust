@@ -246,6 +246,10 @@ pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
     get_one_doc(yaml_load_from_str(source))
 }
 
+pub fn yaml_load_doc_from_str_safe(source: &str) -> Option<Yaml> {
+    get_one_doc(yaml_load_from_str_safe(source))
+}
+
 macro_rules! define_as (
     ($name:ident, $t:ident, $yt:ident) => (
 pub fn $name(&self) -> Option<$t> {
