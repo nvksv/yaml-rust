@@ -236,7 +236,11 @@ pub fn yaml_load_from_str_safe(source: &str) -> Result<Vec<Yaml>, ScanError> {
 }
 
 fn get_one_doc(res: Result<Vec<Yaml>, ScanError>) -> Option<Yaml> {
-    let mut docs = res.ok()?;
+    // Workaround for Rust 1.17: let mut docs = res.ok()?;
+    let mut docs = match res {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
     if docs.len() != 1 {
         return None;
     }
