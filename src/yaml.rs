@@ -204,7 +204,11 @@ pub fn yaml_load_from_str(source: &str) -> Result<Vec<Yaml>, ScanError> {
 }
 
 pub fn yaml_load_doc_from_str(source: &str) -> Option<Yaml> {
-    let mut docs = YamlLoader::load_from_str(source).ok()?;
+    // Workaround for Rust 1.17: let mut docs = YamlLoader::load_from_str(source).ok()?;
+    let mut docs = match YamlLoader::load_from_str(source) {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
     if docs.len() != 1 {
         return None;
     }
