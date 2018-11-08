@@ -57,8 +57,8 @@ impl Event {
         Event::Scalar{value: "~".to_owned(), style: TScalarStyle::Plain, anchor_id: 0, tag: None}
     }
 
-    fn empty_scalar_with_anchor(anchor: usize, tag: Option<TokenType>) -> Event {
-        Event::Scalar{value: "".to_owned(), style: TScalarStyle::Plain, anchor_id: anchor, tag: tag}
+    fn empty_scalar_with_anchor(anchor_id: usize, tag: Option<TokenType>) -> Event {
+        Event::Scalar{value: "".to_owned(), style: TScalarStyle::Plain, anchor_id, tag}
     }
 }
 
@@ -338,12 +338,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn stream_start(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::StreamStart(_)} => {
+            Token{tokentype: TokenType::StreamStart(_), mark} => {
                 self.state = State::ImplicitDocumentStart;
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::StreamStart, mark))
             }
-            Token{mark, tokentype: _} => Err(ScanError::new(mark, "did not find expected <stream-start>")),
+            Token{mark, ..} => Err(ScanError::new(mark, "did not find expected <stream-start>")),
         }
     }
 
@@ -355,18 +355,18 @@ impl<T: Iterator<Item = char>> Parser<T> {
         }
 
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::StreamEnd} => {
+            Token{tokentype: TokenType::StreamEnd, mark} => {
                 self.state = State::End;
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::StreamEnd, mark))
             }
-            Token{mark: _, tokentype: TokenType::VersionDirective(..)}
-            | Token{mark: _, tokentype: TokenType::TagDirective(..)}
-            | Token{mark: _, tokentype: TokenType::DocumentStart} => {
+            Token{tokentype: TokenType::VersionDirective(..), ..}
+            | Token{tokentype: TokenType::TagDirective(..), ..}
+            | Token{tokentype: TokenType::DocumentStart, ..} => {
                 // explicit document
                 self._explict_document_start()
             }
-            Token{mark, tokentype: _} if implicit => {
+            Token{mark, ..} if implicit => {
                 self.parser_process_directives()?;
                 self.push_state(State::DocumentEnd);
                 self.state = State::BlockNode;
@@ -403,13 +403,13 @@ impl<T: Iterator<Item = char>> Parser<T> {
     fn _explict_document_start(&mut self) -> ParseResult {
         self.parser_process_directives()?;
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::DocumentStart} => {
+            Token{tokentype: TokenType::DocumentStart, mark} => {
                 self.push_state(State::DocumentEnd);
                 self.state = State::DocumentContent;
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::DocumentStart, mark))
             }
-            Token{mark, tokentype: _} => Err(ScanError::new(
+            Token{mark, ..} => Err(ScanError::new(
                 mark,
                 "did not find expected <document start>",
             )),
@@ -418,11 +418,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn document_content(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::VersionDirective(..)}
-            | Token{mark, tokentype: TokenType::TagDirective(..)}
-            | Token{mark, tokentype: TokenType::DocumentStart}
-            | Token{mark, tokentype: TokenType::DocumentEnd}
-            | Token{mark, tokentype: TokenType::StreamEnd} => {
+            Token{tokentype: TokenType::VersionDirective(..), mark}
+            | Token{tokentype: TokenType::TagDirective(..), mark}
+            | Token{tokentype: TokenType::DocumentStart, mark}
+            | Token{tokentype: TokenType::DocumentEnd, mark}
+            | Token{tokentype: TokenType::StreamEnd, mark} => {
                 self.pop_state();
                 // empty scalar
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
@@ -434,12 +434,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
     fn document_end(&mut self) -> ParseResult {
         let mut _implicit = true;
         let marker: Marker = match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::DocumentEnd} => {
+            Token{tokentype: TokenType::DocumentEnd, mark} => {
                 self.skip();
                 _implicit = false;
                 mark
             }
-            Token{mark, tokentype: _} => mark,
+            Token{mark, ..} => mark,
         };
 
         // TODO tag handling
@@ -463,9 +463,9 @@ impl<T: Iterator<Item = char>> Parser<T> {
         let mut anchor_id = 0;
         let mut tag = None;
         match *self.peek_token()? {
-            Token{mark: _, tokentype: TokenType::Alias(_)} => {
+            Token{tokentype: TokenType::Alias(_), ..} => {
                 self.pop_state();
-                if let Token{mark, tokentype: TokenType::Alias(name)} = self.fetch_token() {
+                if let Token{tokentype: TokenType::Alias(name), mark} = self.fetch_token() {
                     match self.anchors.get(&name) {
                         None => {
                             return Err(ScanError::new(
@@ -479,8 +479,8 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     unreachable!()
                 }
             }
-            Token{mark: _, tokentype: TokenType::Anchor(_)} => {
-                if let Token{mark, tokentype: TokenType::Anchor(name)} = self.fetch_token() {
+            Token{tokentype: TokenType::Anchor(_), ..} => {
+                if let Token{tokentype: TokenType::Anchor(name), mark} = self.fetch_token() {
                     anchor_id = self.register_anchor(name, &mark)?;
                     if let TokenType::Tag(..) = self.peek_token()?.tokentype {
                         if let tg @ TokenType::Tag(..) = self.fetch_token().tokentype {
@@ -493,11 +493,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     unreachable!()
                 }
             }
-            Token{mark: _, tokentype: TokenType::Tag(..)} => {
+            Token{tokentype: TokenType::Tag(..), ..} => {
                 if let tg @ TokenType::Tag(..) = self.fetch_token().tokentype {
                     tag = Some(tg);
                     if let TokenType::Anchor(_) = self.peek_token()?.tokentype {
-                        if let Token{mark, tokentype: TokenType::Anchor(name)} = self.fetch_token() {
+                        if let Token{tokentype: TokenType::Anchor(name), mark} = self.fetch_token() {
                             anchor_id = self.register_anchor(name, &mark)?;
                         } else {
                             unreachable!()
@@ -510,40 +510,40 @@ impl<T: Iterator<Item = char>> Parser<T> {
             _ => {}
         }
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::BlockEntry} if indentless_sequence => {
+            Token{tokentype: TokenType::BlockEntry, mark} if indentless_sequence => {
                 self.state = State::IndentlessSequenceEntry;
                 Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
             }
-            Token{mark: _, tokentype: TokenType::Scalar(..)} => {
+            Token{tokentype: TokenType::Scalar(..), ..} => {
                 self.pop_state();
-                if let Token{mark, tokentype: TokenType::Scalar(style, value)} = self.fetch_token() {
+                if let Token{tokentype: TokenType::Scalar(style, value), mark} = self.fetch_token() {
                     Ok(ParsedEventMarker::new(Event::Scalar{value, style, anchor_id, tag}, mark))
                 } else {
                     unreachable!()
                 }
             }
-            Token{mark, tokentype: TokenType::FlowSequenceStart} => {
+            Token{tokentype: TokenType::FlowSequenceStart, mark} => {
                 self.state = State::FlowSequenceFirstEntry;
                 Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
             }
-            Token{mark, tokentype: TokenType::FlowMappingStart} => {
+            Token{tokentype: TokenType::FlowMappingStart, mark} => {
                 self.state = State::FlowMappingFirstKey;
                 Ok(ParsedEventMarker::new(Event::MappingStart(anchor_id), mark))
             }
-            Token{mark, tokentype: TokenType::BlockSequenceStart} if block => {
+            Token{tokentype: TokenType::BlockSequenceStart, mark} if block => {
                 self.state = State::BlockSequenceFirstEntry;
                 Ok(ParsedEventMarker::new(Event::SequenceStart(anchor_id), mark))
             }
-            Token{mark, tokentype: TokenType::BlockMappingStart} if block => {
+            Token{tokentype: TokenType::BlockMappingStart, mark} if block => {
                 self.state = State::BlockMappingFirstKey;
                 Ok(ParsedEventMarker::new(Event::MappingStart(anchor_id), mark))
             }
             // ex 7.2, an empty scalar can follow a secondary tag
-            Token{mark, tokentype: _} if tag.is_some() || anchor_id > 0 => {
+            Token{mark, ..} if tag.is_some() || anchor_id > 0 => {
                 self.pop_state();
                 Ok(ParsedEventMarker::new(Event::empty_scalar_with_anchor(anchor_id, tag), mark))
             }
-            Token{mark, tokentype: _} => Err(ScanError::new(
+            Token{mark, ..} => Err(ScanError::new(
                 mark,
                 "while parsing a node, did not find expected node content",
             )),
@@ -558,12 +558,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
             self.skip();
         }
         match *self.peek_token()? {
-            Token{mark: _, tokentype: TokenType::Key} => {
+            Token{tokentype: TokenType::Key, ..} => {
                 self.skip();
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::Key}
-                    | Token{mark, tokentype: TokenType::Value}
-                    | Token{mark, tokentype: TokenType::BlockEnd} => {
+                    Token{tokentype: TokenType::Key, mark}
+                    | Token{tokentype: TokenType::Value, mark}
+                    | Token{tokentype: TokenType::BlockEnd, mark} => {
                         self.state = State::BlockMappingValue;
                         // empty scalar
                         Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
@@ -575,16 +575,16 @@ impl<T: Iterator<Item = char>> Parser<T> {
                 }
             }
             // XXX(chenyh): libyaml failed to parse spec 1.2, ex8.18
-            Token{mark, tokentype: TokenType::Value} => {
+            Token{tokentype: TokenType::Value, mark} => {
                 self.state = State::BlockMappingValue;
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
             }
-            Token{mark, tokentype: TokenType::BlockEnd} => {
+            Token{tokentype: TokenType::BlockEnd, mark} => {
                 self.pop_state();
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::MappingEnd, mark))
             }
-            Token{mark, tokentype: _} => Err(ScanError::new(
+            Token{mark, ..} => Err(ScanError::new(
                 mark,
                 "while parsing a block mapping, did not find expected key",
             )),
@@ -593,12 +593,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn block_mapping_value(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark: _, tokentype: TokenType::Value} => {
+            Token{tokentype: TokenType::Value, ..} => {
                 self.skip();
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::Key}
-                    | Token{mark, tokentype: TokenType::Value}
-                    | Token{mark, tokentype: TokenType::BlockEnd} => {
+                    Token{tokentype: TokenType::Key, mark}
+                    | Token{tokentype: TokenType::Value, mark}
+                    | Token{tokentype: TokenType::BlockEnd, mark} => {
                         self.state = State::BlockMappingKey;
                         // empty scalar
                         Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
@@ -609,7 +609,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     }
                 }
             }
-            Token{mark, tokentype: _} => {
+            Token{mark, ..} => {
                 self.state = State::BlockMappingKey;
                 // empty scalar
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
@@ -625,23 +625,23 @@ impl<T: Iterator<Item = char>> Parser<T> {
         let marker: Marker =
             {
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::FlowMappingEnd} => mark,
-                    Token{mark, tokentype: _} => {
+                    Token{tokentype: TokenType::FlowMappingEnd, mark} => mark,
+                    Token{mark, ..} => {
                         if !first {
                             match *self.peek_token()? {
-                            Token{mark: _, tokentype: TokenType::FlowEntry} => self.skip(),
-                            Token{mark, tokentype: _} => return Err(ScanError::new(mark,
+                            Token{tokentype: TokenType::FlowEntry, ..} => self.skip(),
+                            Token{mark, ..} => return Err(ScanError::new(mark,
                                 "while parsing a flow mapping, did not find expected ',' or '}'"))
                         }
                         }
 
                         match *self.peek_token()? {
-                            Token{mark: _, tokentype: TokenType::Key} => {
+                            Token{tokentype: TokenType::Key, ..} => {
                                 self.skip();
                                 match *self.peek_token()? {
-                                    Token{mark, tokentype: TokenType::Value}
-                                    | Token{mark, tokentype: TokenType::FlowEntry}
-                                    | Token{mark, tokentype: TokenType::FlowMappingEnd} => {
+                                    Token{tokentype: TokenType::Value, mark}
+                                    | Token{tokentype: TokenType::FlowEntry, mark}
+                                    | Token{tokentype: TokenType::FlowMappingEnd, mark} => {
                                         self.state = State::FlowMappingValue;
                                         return Ok(ParsedEventMarker::new(Event::empty_scalar(), mark));
                                     }
@@ -651,11 +651,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
                                     }
                                 }
                             }
-                            Token{mark, tokentype: TokenType::Value} => {
+                            Token{tokentype: TokenType::Value, mark} => {
                                 self.state = State::FlowMappingValue;
                                 return Ok(ParsedEventMarker::new(Event::empty_scalar(), mark));
                             }
-                            Token{mark: _, tokentype: TokenType::FlowMappingEnd} => (),
+                            Token{tokentype: TokenType::FlowMappingEnd, ..} => (),
                             _ => {
                                 self.push_state(State::FlowMappingEmptyValue);
                                 return self.parse_node(false, false);
@@ -675,12 +675,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
     fn flow_mapping_value(&mut self, empty: bool) -> ParseResult {
         let mark: Marker = {
             if empty {
-                let Token{mark, tokentype: _} = *self.peek_token()?;
+                let Token{mark, ..} = *self.peek_token()?;
                 self.state = State::FlowMappingKey;
                 return Ok(ParsedEventMarker::new(Event::empty_scalar(), mark));
             } else {
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::Value} => {
+                    Token{tokentype: TokenType::Value, mark} => {
                         self.skip();
                         match self.peek_token()?.tokentype {
                             TokenType::FlowEntry | TokenType::FlowMappingEnd => {}
@@ -691,7 +691,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                         }
                         mark
                     }
-                    Token{mark, tokentype: _} => mark,
+                    Token{mark, ..} => mark,
                 }
             }
         };
@@ -708,15 +708,15 @@ impl<T: Iterator<Item = char>> Parser<T> {
             self.skip();
         }
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::FlowSequenceEnd} => {
+            Token{tokentype: TokenType::FlowSequenceEnd, mark} => {
                 self.pop_state();
                 self.skip();
                 return Ok(ParsedEventMarker::new(Event::SequenceEnd, mark));
             }
-            Token{mark: _, tokentype: TokenType::FlowEntry} if !first => {
+            Token{tokentype: TokenType::FlowEntry, ..} if !first => {
                 self.skip();
             }
-            Token{mark, tokentype: _} if !first => {
+            Token{mark, ..} if !first => {
                 return Err(ScanError::new(
                     mark,
                     "while parsing a flow sequence, expectd ',' or ']'",
@@ -725,12 +725,12 @@ impl<T: Iterator<Item = char>> Parser<T> {
             _ => { /* next */ }
         }
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::FlowSequenceEnd} => {
+            Token{tokentype: TokenType::FlowSequenceEnd, mark} => {
                 self.pop_state();
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::SequenceEnd, mark))
             }
-            Token{mark, tokentype: TokenType::Key} => {
+            Token{tokentype: TokenType::Key, mark} => {
                 self.state = State::FlowSequenceEntryMappingKey;
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::MappingStart(0), mark))
@@ -744,18 +744,18 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn indentless_sequence_entry(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark: _, tokentype: TokenType::BlockEntry} => (),
-            Token{mark, tokentype: _} => {
+            Token{tokentype: TokenType::BlockEntry, ..} => (),
+            Token{mark, ..} => {
                 self.pop_state();
                 return Ok(ParsedEventMarker::new(Event::SequenceEnd, mark));
             }
         }
         self.skip();
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::BlockEntry}
-            | Token{mark, tokentype: TokenType::Key}
-            | Token{mark, tokentype: TokenType::Value}
-            | Token{mark, tokentype: TokenType::BlockEnd} => {
+            Token{tokentype: TokenType::BlockEntry, mark}
+            | Token{tokentype: TokenType::Key, mark}
+            | Token{tokentype: TokenType::Value, mark}
+            | Token{tokentype: TokenType::BlockEnd, mark} => {
                 self.state = State::IndentlessSequenceEntry;
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
             }
@@ -774,15 +774,15 @@ impl<T: Iterator<Item = char>> Parser<T> {
             self.skip();
         }
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::BlockEnd} => {
+            Token{tokentype: TokenType::BlockEnd, mark} => {
                 self.pop_state();
                 self.skip();
                 Ok(ParsedEventMarker::new(Event::SequenceEnd, mark))
             }
-            Token{mark: _, tokentype: TokenType::BlockEntry} => {
+            Token{tokentype: TokenType::BlockEntry, ..} => {
                 self.skip();
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::BlockEntry} | Token{mark, tokentype: TokenType::BlockEnd} => {
+                    Token{tokentype: TokenType::BlockEntry, mark} | Token{tokentype: TokenType::BlockEnd, mark} => {
                         self.state = State::BlockSequenceEntry;
                         Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
                     }
@@ -792,7 +792,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     }
                 }
             }
-            Token{mark, tokentype: _} => Err(ScanError::new(
+            Token{mark, ..} => Err(ScanError::new(
                 mark,
                 "while parsing a block collection, did not find expected '-' indicator",
             )),
@@ -801,9 +801,9 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn flow_sequence_entry_mapping_key(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark, tokentype: TokenType::Value}
-            | Token{mark, tokentype: TokenType::FlowEntry}
-            | Token{mark, tokentype: TokenType::FlowSequenceEnd} => {
+            Token{tokentype: TokenType::Value, mark}
+            | Token{tokentype: TokenType::FlowEntry, mark}
+            | Token{tokentype: TokenType::FlowSequenceEnd, mark} => {
                 self.skip();
                 self.state = State::FlowSequenceEntryMappingValue;
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
@@ -817,11 +817,11 @@ impl<T: Iterator<Item = char>> Parser<T> {
 
     fn flow_sequence_entry_mapping_value(&mut self) -> ParseResult {
         match *self.peek_token()? {
-            Token{mark: _, tokentype: TokenType::Value} => {
+            Token{tokentype: TokenType::Value, ..} => {
                 self.skip();
                 self.state = State::FlowSequenceEntryMappingValue;
                 match *self.peek_token()? {
-                    Token{mark, tokentype: TokenType::FlowEntry} | Token{mark, tokentype: TokenType::FlowSequenceEnd} => {
+                    Token{tokentype: TokenType::FlowEntry, mark} | Token{tokentype: TokenType::FlowSequenceEnd, mark} => {
                         self.state = State::FlowSequenceEntryMappingEnd;
                         Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
                     }
@@ -831,7 +831,7 @@ impl<T: Iterator<Item = char>> Parser<T> {
                     }
                 }
             }
-            Token{mark, tokentype: _} => {
+            Token{mark, ..} => {
                 self.state = State::FlowSequenceEntryMappingEnd;
                 Ok(ParsedEventMarker::new(Event::empty_scalar(), mark))
             }

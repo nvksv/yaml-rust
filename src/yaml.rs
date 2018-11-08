@@ -182,8 +182,8 @@ impl YamlLoader {
         } else {
             let parent = self.doc_stack.last_mut().unwrap();
             match *parent {
-                NodeWithAnchor{node: Yaml::Array(ref mut v), anchor_id: _} => v.push(node.node),
-                NodeWithAnchor{node: Yaml::Hash(ref mut h), anchor_id: _} => {
+                NodeWithAnchor{node: Yaml::Array(ref mut v), ..} => v.push(node.node),
+                NodeWithAnchor{node: Yaml::Hash(ref mut h), ..} => {
                     let cur_key = self.key_stack.last_mut().unwrap();
                     // current node is a key
                     if cur_key.is_badvalue() {
