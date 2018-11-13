@@ -119,7 +119,7 @@ impl<TS, TB> MarkedEventReceiver for YamlLoader<TS, TB> where TS: YamlSettings, 
                     }
                 } else {
                     // Datatype is not specified, or unrecognized
-                    self.from_str(&value, marker)
+                    self.str_to_node(&value, marker)
                 };
 
                 self.insert_new_node(NodeWithAnchor::new(node, anchor), marker);
@@ -154,7 +154,7 @@ impl<TS, TB> YamlLoader<TS, TB> where TS: YamlSettings, TB: YamlBuilder {
         }
     }
 
-    pub fn from_str(&mut self, v: &str, marker: Marker) -> TB::NodeHandle {
+    pub fn str_to_node(&mut self, v: &str, marker: Marker) -> TB::NodeHandle {
         if v.starts_with("0x") {
             if let Ok(i) = i64::from_str_radix(&v[2..], 16) {
                 return self.builder.new_int(i, marker);
