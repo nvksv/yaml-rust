@@ -60,6 +60,7 @@ pub use scanner::ScanError;
 pub use yaml::Yaml;
 pub use loader::{YamlLoader, yaml_load_from_str, yaml_load_doc_from_str, yaml_load_from_str_safe, yaml_load_doc_from_str_safe};
 pub use settings::{YamlSettings, YamlStandardSettings};
+pub use builder::{YamlBuilder, YamlNodeKind, YamlStandardBuilder};
 
 #[cfg(test)]
 mod tests {
